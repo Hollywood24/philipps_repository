@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aktien-Ticker (live)</title>
+
+<link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+
+<style>
+  /* ===== CSS: Aussehen (unverändert zur ersten Version) ===== */
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 14px;
+    background: #0d0c0b;
+    font-family: 'VT323', 'Courier New', monospace;
+  }
+  .gehaeuse {
+    background: #1c1a18;
+    padding: 22px;
+    border-radius: 12px;
+    border: 2px solid #2e2b27;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.8);
+  }
+  .display {
+    position: relative;
+    width: min(88vw, 620px);
+    background: #000;
+    padding: 16px 22px;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .zeile {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr 1.3fr;
+    font-size: clamp(28px, 7vw, 46px);
+    line-height: 1.2;
+    letter-spacing: 2px;
+  }
+  .preis, .aenderung { text-align: right; }
+  .name  { color: #ffb000; text-shadow: 0 0 8px #ff8c00; }
+  .gruen { color: #2dff55; text-shadow: 0 0 10px #00d62b; }
+  .rot   { color: #ff3030; text-shadow: 0 0 10px #d00000; }
+  .leer  { color: #5a4a20; }   /* gedimmt, solange noch kein Kurs da ist */
+  .display::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: radial-gradient(circle, transparent 0 1px, rgba(0, 0, 0, 0.8) 1.7px);
+    background-size: 4px 4px;
+  }
+
+  /* Kleine Statuszeile unter der Anzeige */
+  #status { color: #8a7a55; font-size: 22px; text-align: center; max-width: 88vw; }
+</style>
+</head>
+
+<body>
+  <div class="gehaeuse">
+    <div class="display" id="display"></div>
+  </div>
+  <div id="status">Lade Kurse ...</div>
+
+  <script>
+    // ===== EINSTELLUNGEN: Hier änderst du die wichtigsten Dinge =====
+
+    // Dein persönlicher Schlüssel von finnhub.io (zwischen die Anführungszeichen einfügen)
+    const API_KEY = "dbouma1r01qvfla5glq0dbouma1r01qvfla5glqg";
+
+    // Die Aktien (US-Börsenkürzel, Großbuchstaben)
+    const SYMBOLE = ["NVDA", "AAPL", "AMD", "AMZN", "GOOGL"];
+
+    // Wie oft aktualisiert wird, in Millisekunden (15000 = alle 15 Sekunden)
+    const INTERVALL = 15000;
+
+
+    // ===== AB HIER: die Logik =====
+
+    // Für jedes Kürzel ein Eintrag; Kurse sind am Anfang noch leer (null)
+    const aktien = SYMBOLE.map(s => ({ name: s, kurs: null, gestern: null }));
+
+    // Anzeige zeichnen
+    function zeichne() {
+      const display = document.getElementById("display");
+      display.innerHTML = "";
+
+      for (const a of aktien) {
+        // Noch kein Kurs da? Dann Platzhalter zeigen
+        if (a.kurs === null) {
+          display.innerHTML += `
+            <div class="zeile">
+              <span class="name">${a.name}</span>
+              <span class="preis leer">---</span>
+              <span class="aenderung leer">---</span>
+            </div>`;
+          continue;
+        }
+
+        const diff = a.kurs - a.gestern;
+        const prozent = diff / a.gestern * 100;
+        const farbe = diff >= 0 ? "gruen" : "rot";
+        const pfeil = diff >= 0 ? "▲" : "▼";
+        const vorzeichen = diff >= 0 ? "+" : "";
+
+        const kursText = a.kurs.toFixed(2).replace(".", ",");
+        const prozentText = vorzeichen + prozent.toFixed(2).replace(".", ",") + "%";
+
+        display.innerHTML += `
+          <div class="zeile">
+            <span class="name">${a.name}</span>
+            <span class="preis ${farbe}">${kursText}</span>
+            <span class="aenderung ${farbe}">${pfeil}${prozentText}</span>
+          </div>`;
+      }
+    }
+
+    // Kurse von der API holen
+    // "async/await" heißt: Warte, bis die Antwort aus dem Internet da ist.
+    async function holeKurse() {
+      const status = document.getElementById("status");
+
+      if (API_KEY === "DEIN_API_SCHLUESSEL") {
+        status.textContent = "Bitte zuerst deinen API-Schlüssel oben im Code eintragen.";
+        return;
+      }
+
+      let fehler = 0;
+
+      for (const a of aktien) {
+        try {
+          const url = `https://finnhub.io/api/v1/quote?symbol=${a.name}&token=${API_KEY}`;
+          const antwort = await fetch(url);
+          const daten = await antwort.json();
+
+          // c = aktueller Kurs, pc = Schlusskurs des Vortags
+          if (daten.c) {
+            a.kurs = daten.c;
+            a.gestern = daten.pc;
+          } else {
+            fehler++;
+          }
+        } catch (e) {
+          console.log("Fehler bei", a.name, e);
+          fehler++;
+        }
+      }
+
+      zeichne();
+
+      const jetzt = new Date().toLocaleTimeString("de-DE");
+      status.textContent = fehler === 0
+        ? "Aktualisiert um " + jetzt
+        : fehler + " von " + aktien.length + " Kursen nicht abrufbar (" + jetzt + ")";
+    }
+
+    // Start: erst leere Anzeige, dann Kurse holen, dann regelmäßig wiederholen
+    zeichne();
+    holeKurse();
+    setInterval(holeKurse, INTERVALL);
+  </script>
+</body>
+</html>
